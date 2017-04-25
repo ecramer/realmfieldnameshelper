@@ -38,29 +38,53 @@ class FileGenerator(private val filer: Filer) {
                 .addJavadoc("This class enumerate all queryable fields in {@link \$L.\$L}\n",
                         classData.packageName, classData.simpleClassName)
 
-
         // Add a static field reference to each queryable field in the Realm model class
+        doGenerateFile(classData, classPool, fileBuilder, "")
+
+        return writeToFile(classData, fileBuilder)
+
+    }
+
+    private fun doGenerateFile(classData: ClassData, classPool: Set<ClassData>, fileBuilder: TypeSpec.Builder, prefix: String) {
+
+        println("Fields for class ${classData.simpleClassName}: ${classData.fields.size}")
+
         classData.fields.forEach { fieldName, value ->
+
+            println("Looking at field ${fieldName} with value ${value} for class ${classData.simpleClassName}")
+
             if (value != null) {
-                // Add linked field names (only up to depth 1)
+
+                var found = false
                 for (data in classPool) {
                     if (data.qualifiedClassName == value) {
+                        println("Generating ${prefix}${data.simpleClassName}")
                         val linkedTypeSpec = TypeSpec.classBuilder(formatter.format(fieldName))
                                 .addModifiers(Modifier.PUBLIC, Modifier.FINAL, Modifier.STATIC)
-                        val linkedClassFields = data.fields
-                        addField(linkedTypeSpec, "$", fieldName)
-                        for (linkedFieldName in linkedClassFields.keys) {
-                            addField(linkedTypeSpec, linkedFieldName, fieldName + "." + linkedFieldName)
-                        }
+
+                        addField(linkedTypeSpec, "$", prefix + fieldName)
+
+                        doGenerateFile(data, classPool, linkedTypeSpec, prefix + fieldName + ".")
                         fileBuilder.addType(linkedTypeSpec.build())
+
+                        found = true
+                        break;
                     }
                 }
+
+                if(!found) {
+                    addField(fileBuilder, fieldName, prefix + fieldName)
+                }
+
             } else {
                 // Add normal field name
-                addField(fileBuilder, fieldName, fieldName)
+                println("Generating field ${prefix}${fieldName} in class ${classData.simpleClassName}")
+                addField(fileBuilder, fieldName, prefix + fieldName)
             }
         }
+    }
 
+    private fun writeToFile(classData: ClassData, fileBuilder: TypeSpec.Builder): Boolean {
         val javaFile = JavaFile.builder(classData.packageName, fileBuilder.build()).build()
         try {
             javaFile.writeTo(filer)
@@ -69,7 +93,6 @@ class FileGenerator(private val filer: Filer) {
             e.printStackTrace()
             return false
         }
-
     }
 
     private fun addField(fileBuilder: TypeSpec.Builder, fieldName: String, fieldNameValue: String) {

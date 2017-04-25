@@ -14,6 +14,7 @@ public class Person extends RealmObject {
     public RealmList<Dog> dogs;
     public Dog favoriteDog;
     public LibraryModel libraryRef;
+    public RealmList<Cat> cats;
 
     @Ignore
     public int random;
