@@ -45,6 +45,8 @@ public class RealmFieldNamesProcessor extends AbstractProcessor {
     private FileGenerator fileGenerator;
     private boolean done = false;
 
+    private DeclaredType realmResultsClass;
+
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
@@ -54,6 +56,8 @@ public class RealmFieldNamesProcessor extends AbstractProcessor {
         ignoreAnnotation = elementUtils.getTypeElement("io.realm.annotations.Ignore").asType();
         realmModelClass = elementUtils.getTypeElement("io.realm.RealmModel").asType();
         realmListClass = typeUtils.getDeclaredType(elementUtils.getTypeElement("io.realm.RealmList"),
+                typeUtils.getWildcardType(null, null));
+        realmResultsClass = typeUtils.getDeclaredType(elementUtils.getTypeElement("io.realm.RealmResults"),
                 typeUtils.getWildcardType(null, null));
         fileGenerator = new FileGenerator(processingEnv.getFiler());
     }
@@ -125,7 +129,7 @@ public class RealmFieldNamesProcessor extends AbstractProcessor {
             // Object link
             TypeElement typeElement = elementUtils.getTypeElement(field.asType().toString());
             return typeElement.getQualifiedName().toString();
-        } else if (typeUtils.isAssignable(field.asType(), realmListClass)) {
+        } else if (typeUtils.isAssignable(field.asType(), realmListClass) || typeUtils.isAssignable(field.asType(), realmResultsClass)) {
             // List link
             TypeMirror fieldType = field.asType();
             List<? extends TypeMirror> typeArguments = ((DeclaredType) fieldType).getTypeArguments();

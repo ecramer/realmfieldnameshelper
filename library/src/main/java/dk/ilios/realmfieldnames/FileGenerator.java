@@ -5,7 +5,8 @@ import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.TypeSpec;
 
 import java.io.IOException;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 import javax.annotation.processing.Filer;
@@ -16,76 +17,91 @@ import javax.lang.model.element.Modifier;
  */
 public class FileGenerator {
 
-    private final Filer filer;
-    private final FieldNameFormatter formatter;
+	private final Filer filer;
 
-    public FileGenerator(Filer filer) {
-        this.filer = filer;
-        this.formatter = new FieldNameFormatter();
-    }
+	private final FieldNameFormatter formatter;
 
-    /**
-     * Generates all the "&lt;class&gt;Fields" fields with field name references.
-     * @param fileData Files to create.
-     * @return {@code true} if the files where generated, {@code false} if not.
-     */
-    public boolean generate(Set<ClassData> fileData) {
-        for (ClassData classData : fileData) {
-            if (!generateFile(classData, fileData)) {
-                return false;
-            }
-        }
+	public FileGenerator(Filer filer) {
+		this.filer = filer;
+		this.formatter = new FieldNameFormatter();
+	}
 
-        return true;
-    }
+	/**
+	 * Generates all the "&lt;class&gt;Fields" fields with field name references.
+	 *
+	 * @param fileData Files to create.
+	 * @return {@code true} if the files where generated, {@code false} if not.
+	 */
+	public boolean generate(Set<ClassData> fileData) {
+		for (ClassData classData : fileData) {
+			if (!generateFile(classData, fileData)) {
+				return false;
+			}
+		}
 
-    private boolean generateFile(ClassData classData, Set<ClassData> classPool) {
+		return true;
+	}
 
-        TypeSpec.Builder fileBuilder = TypeSpec.classBuilder(classData.getSimpleClassName() + "Fields")
-                .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
-                .addJavadoc("This class enumerate all queryable fields in {@link $L.$L}\n",
-                        classData.getPackageName(), classData.getSimpleClassName());
+	private boolean generateFile(ClassData classData, Set<ClassData> classPool) {
 
+		TypeSpec.Builder fileBuilder = TypeSpec.classBuilder(classData.getSimpleClassName() + "Fields")
+				.addModifiers(Modifier.PUBLIC, Modifier.FINAL)
+				.addJavadoc("This class enumerate all queryable fields in {@link $L.$L}\n",
+						classData.getPackageName(), classData.getSimpleClassName());
 
-        // Add a static field reference to each queryable field in the Realm model class
-        for (Map.Entry<String, String> entry : classData.getFields().entrySet()) {
+		doGenerateFile(classData, classPool, fileBuilder, "", new ArrayList<String>());
 
-            String fieldName = entry.getKey();
-            if (entry.getValue() != null) {
-                // Add linked field names (only up to depth 1)
-                for (ClassData data : classPool) {
-                    if (data.getQualifiedClassName().equals(entry.getValue())) {
-                        TypeSpec.Builder linkedTypeSpec = TypeSpec.classBuilder(formatter.format(fieldName))
-                                .addModifiers(Modifier.PUBLIC, Modifier.FINAL, Modifier.STATIC);
-                        Map<String, String> linkedClassFields = data.getFields();
-                        addField(linkedTypeSpec, "$", fieldName);
-                        for (String linkedFieldName : linkedClassFields.keySet()) {
-                            addField(linkedTypeSpec, linkedFieldName, fieldName + "." + linkedFieldName);
-                        }
-                        fileBuilder.addType(linkedTypeSpec.build());
-                    }
-                }
-            } else {
-                // Add normal field name
-                addField(fileBuilder, fieldName, fieldName);
-            }
-        }
+		return writeToFile(classData, fileBuilder);
+	}
 
-        JavaFile javaFile = JavaFile.builder(classData.getPackageName(), fileBuilder.build()).build();
-        try {
-            javaFile.writeTo(filer);
-            return true;
-        } catch (IOException e) {
-            e.printStackTrace();
-            return false;
-        }
-    }
+	private void doGenerateFile(ClassData classData, Set<ClassData> classPool, TypeSpec.Builder builder, String prefix, List<String> classHierarchy) {
 
-    private void addField(TypeSpec.Builder fileBuilder, String fieldName, String fieldNameValue) {
-        FieldSpec field = FieldSpec.builder(String.class, formatter.format(fieldName))
-                .addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
-                .initializer("$S", fieldNameValue)
-                .build();
-        fileBuilder.addField(field);
-    }
+		classData.getFields().forEach((fieldName, value) -> {
+
+			if (value != null) {
+
+				classPool.stream().filter(cd -> cd.getQualifiedClassName().equals(value)).findFirst().ifPresent(data -> {
+
+					if (classHierarchy.contains(data.getQualifiedClassName())) {
+						addField(builder, fieldName, prefix + fieldName);
+					} else {
+						TypeSpec.Builder linkedTypeSpec = TypeSpec.classBuilder(formatter.format(fieldName))
+								.addModifiers(Modifier.PUBLIC, Modifier.FINAL, Modifier.STATIC);
+						addField(linkedTypeSpec, "$", prefix + fieldName);
+
+						classHierarchy.add(classData.getQualifiedClassName());
+						doGenerateFile(data, classPool, linkedTypeSpec, prefix + fieldName + ".", classHierarchy);
+						classHierarchy.remove(classData.getQualifiedClassName());
+
+						builder.addType(linkedTypeSpec.build());
+					}
+
+				});
+
+			} else {
+				addField(builder, fieldName, prefix + fieldName);
+			}
+
+		});
+
+	}
+
+	private boolean writeToFile(ClassData classData, TypeSpec.Builder fileBuilder) {
+		JavaFile javaFile = JavaFile.builder(classData.getPackageName(), fileBuilder.build()).build();
+		try {
+			javaFile.writeTo(filer);
+			return true;
+		} catch (IOException e) {
+			e.printStackTrace();
+			return false;
+		}
+	}
+
+	private void addField(TypeSpec.Builder fileBuilder, String fieldName, String fieldNameValue) {
+		FieldSpec field = FieldSpec.builder(String.class, formatter.format(fieldName))
+				.addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+				.initializer("$S", fieldNameValue)
+				.build();
+		fileBuilder.addField(field);
+	}
 }
